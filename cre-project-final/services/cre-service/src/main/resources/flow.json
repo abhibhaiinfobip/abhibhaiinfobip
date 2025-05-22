@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "httprequest",
+      "type": "rest-http-request-step",
+      "config": {
+        "url": "/cre/xml",
+        "method": "POST"
+      }
+    },
+    {
+      "id": "logger",
+      "type": "logging-step",
+      "config": {}
+    }
+  ]
+}
