@@ -9,6 +9,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import org.cre.library.workflow.manager.exceptions.InvalidFlowConfigurationException;
+import org.pf4j.PluginWrapper;
+import java.io.IOException;
+import java.util.HashMap;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -72,24 +76,51 @@ public class CreResource {
         pluginManager.loadPlugins();
         pluginManager.startPlugins();
 
-        List<WorkflowStep> steps = pluginManager.getExtensions(WorkflowStep.class);
-        if (steps.isEmpty()) {
-            System.err.println("No WorkflowStep plugins found!");
+        // Construct map of active WorkflowStep plugins (pluginId -> instance)
+        Map<String, WorkflowStep> activeWorkflowSteps = new HashMap<>();
+        List<PluginWrapper> startedPlugins = pluginManager.getStartedPlugins();
+
+        if (startedPlugins.isEmpty()) {
+            System.err.println("No plugins were started by PF4J.");
         } else {
-            System.out.println("Found " + steps.size() + " WorkflowStep plugins.");
+            System.out.println("Found " + startedPlugins.size() + " started plugins.");
+            for (PluginWrapper wrapper : startedPlugins) {
+                String pluginId = wrapper.getPluginId();
+                System.out.println("Checking plugin for WorkflowStep extensions: " + pluginId);
+                // Note: getExtensions(extensionClass, pluginId) is the correct PF4J method
+                List<WorkflowStep> extensions = pluginManager.getExtensions(WorkflowStep.class, pluginId);
+                if (!extensions.isEmpty()) {
+                    // Assuming one WorkflowStep extension per plugin for simplicity
+                    activeWorkflowSteps.put(pluginId, extensions.get(0));
+                    System.out.println("Found and mapped WorkflowStep from plugin: " + pluginId);
+                } else {
+                    System.out.println("No WorkflowStep extensions found in plugin: " + pluginId);
+                }
+            }
         }
+        
+        if (activeWorkflowSteps.isEmpty()) {
+            System.err.println("No active WorkflowStep plugins found/mapped!");
+        } else {
+            System.out.println("Total active WorkflowStep plugins mapped: " + activeWorkflowSteps.size());
+        }
+
 
         String flowJsonPath = findFlowJsonPath();
         System.out.println("flow.json path: " + flowJsonPath);
 
-        this.workflowManager = new WorkflowManager(steps, flowJsonPath);
+        this.workflowManager = new WorkflowManager(activeWorkflowSteps, flowJsonPath);
         try {
             this.workflowManager.loadFlow();
-            System.out.println("WorkflowManager initialized and flow.json loaded.");
-        } catch (Exception e) {
-            System.err.println("Error loading flow.json in WorkflowManager: " + e.getMessage());
+            System.out.println("WorkflowManager initialized and flow.json loaded and validated.");
+        } catch (InvalidFlowConfigurationException | IOException e) {
+            System.err.println("FATAL: Failed to load or validate flow.json: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException("Failed to initialize WorkflowManager", e);
+            throw new RuntimeException("CreResource initialization failed: Invalid or unreadable flow configuration.", e);
+        } catch (Exception e) { // Catch other potential runtime exceptions during loadFlow
+            System.err.println("FATAL: Unexpected error during WorkflowManager initialization: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("CreResource initialization failed due to unexpected error.", e);
         }
     }
 
